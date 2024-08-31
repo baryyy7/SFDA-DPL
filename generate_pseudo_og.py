@@ -123,19 +123,13 @@ if __name__ == '__main__':
             pseudo_label[pseudo_label > 0.75] = 1.0; pseudo_label[pseudo_label <= 0.75] = 0.0
 
             feature = torch.mean(features,dim=0)
-            
-            # pseudo_label = target
-            target_interpolated = F.interpolate(target, size=feature.size()[2:], mode='nearest')
+
             target_0_obj = F.interpolate(pseudo_label[:,0:1,...], size=feature.size()[2:], mode='nearest')
             target_1_obj = F.interpolate(pseudo_label[:, 1:, ...], size=feature.size()[2:], mode='nearest')
             prediction_small = F.interpolate(prediction, size=feature.size()[2:], mode='bilinear', align_corners=True)
             std_map_small = F.interpolate(std_map, size=feature.size()[2:], mode='bilinear', align_corners=True)
             target_0_bck = 1.0 - target_0_obj;target_1_bck = 1.0 - target_1_obj
-            
-            # prediction_small_hard = prediction_small.clone()
-            # prediction_small_hard[prediction_small_hard > 0.75] = 1.0; prediction_small_hard[prediction_small_hard <= 0.75] = 0.0
 
-            # pixel level denoising
             mask_0_obj = torch.zeros([std_map_small.shape[0], 1, std_map_small.shape[2], std_map_small.shape[3]]).cuda()
             mask_0_bck = torch.zeros([std_map_small.shape[0], 1, std_map_small.shape[2], std_map_small.shape[3]]).cuda()
             mask_1_obj = torch.zeros([std_map_small.shape[0], 1, std_map_small.shape[2], std_map_small.shape[3]]).cuda()
@@ -148,26 +142,21 @@ if __name__ == '__main__':
             mask_1 = mask_1_obj + mask_1_bck
             mask = torch.cat((mask_0, mask_1), dim=1)
 
-            # get surviving 
             feature_0_obj = feature * target_0_obj*mask_0_obj;feature_1_obj = feature * target_1_obj*mask_1_obj
             feature_0_bck = feature * target_0_bck*mask_0_bck;feature_1_bck = feature * target_1_bck*mask_1_bck
 
-            # create centroids for class level clustring
             centroid_0_obj = torch.sum(feature_0_obj*prediction_small[:,0:1,...], dim=[0,2,3], keepdim=True)
-            centroid_1_obj = torch.sum(feature_1_obj*prediction_small[:,1:,...] , dim=[0,2,3], keepdim=True)
-            # multiply the disc probabilities so we take only them for the pseudo label computation
-            centroid_0_bck = torch.sum(feature_0_bck*((1.0-prediction_small[:,0:1,...])*(prediction_small[:,1:,...])), dim=[0,2,3], keepdim=True)
+            centroid_1_obj = torch.sum(feature_1_obj*prediction_small[:,1:,...], dim=[0,2,3], keepdim=True)
+            centroid_0_bck = torch.sum(feature_0_bck*(1.0-prediction_small[:,0:1,...]), dim=[0,2,3], keepdim=True)
             centroid_1_bck = torch.sum(feature_1_bck*(1.0-prediction_small[:,1:,...]), dim=[0,2,3], keepdim=True)
             target_0_obj_cnt = torch.sum(mask_0_obj*target_0_obj*prediction_small[:,0:1,...], dim=[0,2,3], keepdim=True)
-            target_1_obj_cnt = torch.sum(mask_1_obj*target_1_obj*prediction_small[:,1:,...] , dim=[0,2,3], keepdim=True)
-            target_0_bck_cnt = torch.sum(mask_0_bck*target_0_bck*(1.0-prediction_small[:,0:1,...])*((prediction_small[:,1:,...])), dim=[0,2,3], keepdim=True)
+            target_1_obj_cnt = torch.sum(mask_1_obj*target_1_obj*prediction_small[:,1:,...], dim=[0,2,3], keepdim=True)
+            target_0_bck_cnt = torch.sum(mask_0_bck*target_0_bck*(1.0-prediction_small[:,0:1,...]), dim=[0,2,3], keepdim=True)
             target_1_bck_cnt = torch.sum(mask_1_bck*target_1_bck*(1.0-prediction_small[:,1:,...]), dim=[0,2,3], keepdim=True)
 
-            # normalize the centroids
             centroid_0_obj /= target_0_obj_cnt; centroid_1_obj /= target_1_obj_cnt
             centroid_0_bck /= target_0_bck_cnt; centroid_1_bck /= target_1_bck_cnt
 
-            # calculate distance to centroid 
             distance_0_obj = torch.sum(torch.pow(feature - centroid_0_obj, 2), dim=1, keepdim=True)
             distance_0_bck = torch.sum(torch.pow(feature - centroid_0_bck, 2), dim=1, keepdim=True)
             distance_1_obj = torch.sum(torch.pow(feature - centroid_1_obj, 2), dim=1, keepdim=True)
@@ -214,7 +203,7 @@ if __name__ == '__main__':
                          )
 
     elif args.dataset=="Domain2":
-        np.savez('./results/prototype/pseudolabel_D2_bar_cup_on_disc_gt_fg', pseudo_label_dic, uncertain_dic, proto_pseudo_dic,
+        np.savez('./results/prototype/pseudolabel_D2_original_2408', pseudo_label_dic, uncertain_dic, proto_pseudo_dic,
                          distance_0_obj_dic, distance_0_bck_dic, distance_1_obj_dic, distance_1_bck_dic,
                          centroid_0_obj_dic, centroid_0_bck_dic, centroid_1_obj_dic, centroid_1_bck_dic
                          )

@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python
 
 import argparse
@@ -10,8 +11,6 @@ import torch.nn.functional as F
 # import matplotlib.pyplot as plt
 
 import torch
-# torch.backends.cudnn.enabled=False
-# torch.backends.cudnn.benchmark = True
 from torch.autograd import Variable
 import tqdm
 from dataloaders import fundus_dataloader as DL
@@ -30,8 +29,6 @@ import cv2
 import torch.backends.cudnn as cudnn
 import random
 from tensorboardX import SummaryWriter
-
-
 
 bceloss = torch.nn.BCELoss(reduction='none')
 seed = 3377
@@ -52,14 +49,14 @@ if __name__ == '__main__':
     parser.add_argument('--model-file', type=str, default='/users/scratch/baryaacovi-2024-06-01/projects/SFDA-DPL/base.pth.tar')
     parser.add_argument('--dataset', type=str, default='Domain2')
     parser.add_argument('--source', type=str, default='Domain3')
-    parser.add_argument('-g', '--gpu', type=int, default=0)
+    parser.add_argument('-g', '--gpu', type=int, default=1)
     parser.add_argument('--data-dir', default='../datasets/Fundus')
     parser.add_argument('--out-stride',type=int,default=16)
     parser.add_argument('--sync-bn',type=bool,default=True)
     parser.add_argument('--freeze-bn',type=bool,default=False)
     args = parser.parse_args()
 
-    # os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
     model_file = args.model_file
 
     # 1. dataset
@@ -103,6 +100,7 @@ if __name__ == '__main__':
         # npfilename = '/users/scratch/baryaacovi-2024-06-01/projects/SFDA-DPL/results/prototype/pseudolabel_D2_bar.npz'
         # npfilename = '/users/scratch/baryaacovi-2024-06-01/projects/SFDA-DPL/results/prototype/pseudolabel_D2_bar_cup_on_disc_gt_fg.npz'
 
+
     elif args.dataset=="Domain1":
         npfilename = './generate_pseudo/pseudolabel_D1.npz'
 
@@ -110,6 +108,11 @@ if __name__ == '__main__':
     pseudo_label_dic = npdata['arr_0'].item()
     uncertain_dic = npdata['arr_1'].item()
     proto_pseudo_dic = npdata['arr_2'].item()
+    
+    pseudo_sam_improve = "/users/scratch/baryaacovi-2024-06-01/projects/SFDA-DPL/results/prototype/sam_improved_labels.npz"
+    npdata_sam = np.load(pseudo_sam_improve, allow_pickle=True)
+    pseudo_label_dic = npdata_sam['arr_0'].item()
+    
 
     var_list = model.named_parameters()
 
@@ -119,28 +122,8 @@ if __name__ == '__main__':
     best_avg = 0.0
 
     iter_num = 0
-    
-    out = './logs_bar'
-    log_dir = os.path.join(out, 'tensorboard',
-                               datetime.now().strftime('%b%d_%H-%M-%S') + '_')
-    writer = SummaryWriter(log_dir=log_dir)
-    
-    plabs = list(pseudo_label_dic.values())
-    tp = torch.from_numpy(np.asarray(plabs)).float().cuda()
-    num_cup = tp[:,0,...].sum()
-    num_cup_bg = (1 - tp)[:,0,...].sum()
-    num_disc = tp[:,1,...].sum()
-    num_disc_bg = (1 - tp)[:,1,...].sum()
-    
-    cup_bg_coeff = num_cup / num_cup_bg
-    disc_bg_coeff = num_disc / num_disc_bg
-    print("coeffs : disc_bg_coeff: ", disc_bg_coeff, " cup_bg_coeff: ", cup_bg_coeff, "tp shape: ", tp.shape)
-    
-    for epoch_num in tqdm.tqdm(range(2), ncols=70):
+    for epoch_num in tqdm.tqdm(range(5), ncols=70):
         model.train()
-        epoch_cup_avg_loss = 0.0
-        epoch_disc_avg_loss = 0.0
-        num_img_tr = len(train_loader)
         for batch_idx, (sample) in enumerate(train_loader):
             data, target, img_name = sample['image'], sample['map'], sample['img_name']
             if torch.cuda.is_available():
@@ -152,8 +135,6 @@ if __name__ == '__main__':
 
             pseudo_label = [pseudo_label_dic.get(key) for key in img_name]
             uncertain_map = [uncertain_dic.get(key) for key in img_name]
-            # 1 if th e distance to the fg class prototype is smaller than the distance to the bg class prototype
-            # Same for the bg class case
             proto_pseudo = [proto_pseudo_dic.get(key) for key in img_name]
 
             pseudo_label = torch.from_numpy(np.asarray(pseudo_label)).float().cuda()
@@ -162,23 +143,12 @@ if __name__ == '__main__':
 
             for param in model.parameters():
                 param.requires_grad = True
-            # TRY FREEZING
-            # for name, p in model.named_parameters():
-            #     if 'decoder.last_conv.3.weight' in name:
-            #         prototypes = p
-            #         p.requires_grad = False
-            #         print(f"freeze {name}")
-            #     if 'decoder.last_conv.3.bias' in name:
-            #         bias = p
-            #         p.requires_grad = False
-            #         print(f"freeze {name}")
             optim_gen.zero_grad()
 
             target_0_obj = F.interpolate(pseudo_label[:,0:1,...], size=feature.size()[2:], mode='nearest')
             target_1_obj = F.interpolate(pseudo_label[:, 1:, ...], size=feature.size()[2:], mode='nearest')
             target_0_bck = 1.0 - target_0_obj;target_1_bck = 1.0 - target_1_obj
 
-            # pixel level denoising
             mask_0_obj = torch.zeros([pseudo_label.shape[0], 1, pseudo_label.shape[2], pseudo_label.shape[3]]).cuda()
             mask_0_bck = torch.zeros([pseudo_label.shape[0], 1, pseudo_label.shape[2], pseudo_label.shape[3]]).cuda()
             mask_1_obj = torch.zeros([pseudo_label.shape[0], 1, pseudo_label.shape[2], pseudo_label.shape[3]]).cuda()
@@ -187,58 +157,18 @@ if __name__ == '__main__':
             mask_0_bck[uncertain_map[:, 0:1, ...] < 0.05] = 1.0
             mask_1_obj[uncertain_map[:, 1:, ...] < 0.05] = 1.0
             mask_1_bck[uncertain_map[:, 1:, ...] < 0.05] = 1.0
-            
-            # the pseudo labels after  the pixel level denoising
-            # we take the pseudo labels (1 or 0) 
             mask = torch.cat((mask_0_obj*pseudo_label[:,0:1,...] + mask_0_bck*(1.0-pseudo_label[:,0:1,...]), mask_1_obj*pseudo_label[:,1:,...] + mask_1_bck*(1.0-pseudo_label[:,1:,...])), dim=1)
 
             mask_proto = torch.zeros([data.shape[0], 2, data.shape[2], data.shape[3]]).cuda()
-            # I[y==1] * I[d_obj < d_bck]
             mask_proto[pseudo_label==proto_pseudo] = 1.0
 
-            # combine with pixel denoising
             mask = mask*mask_proto
-            
-            # keep only the pixels that are in the disc for the cup loss
-            
-            only_disc = mask[:,0,...]  * pseudo_label[:,1,...]
-            only_disc_ratio = torch.sum(only_disc) / torch.sum(mask[:,0,...])
-            # print("only_disc_ratio: ", only_disc_ratio)
-            
-            # num_pix_a = torch.sum(mask[:,0,...])
-            # print("mask[:,0,...]: BEFORE removal of non-disc", torch.sum(mask[:,0,...]))
-            mask_copy = mask.clone()
-            mask_copy[:,0,...] =  (mask_copy[:,0,...]  * pseudo_label[:,1,...])
-            # num_pix_b = torch.sum(mask[:,0,...])
-            # print("mask[:,0,...]: AFTER removal of non-disc", torch.sum(mask[:,0,...]))
-            # print(f"Ratio reduction: {num_pix_a/num_pix_b}")
-            # cup: 0.7880 disc: 0.9017 avg: 0.8448 cup: 10.3987 disc: 9.8523 avg: 10.1255
-            #  best cup: 0.7958 best disc: 0.9023 best avg: 0.8490 best cup: 9.1075 best disc: 9.3767 best avg: 9.2421
-            
+
             loss_seg_pixel = bceloss(prediction, pseudo_label)
-            
-            # weight the loss
-            # mask[:,0,...][pseudo_label[:,0,...] == 0] *= cup_bg_coeff 
-            # mask[:,1,...][pseudo_label[:,1,...] == 0] *= disc_bg_coeff
-            
-            loss_seg_cup = torch.sum(mask[:,0,...] * loss_seg_pixel[:,0,...])  / torch.sum(mask[:,0,...])
-            loss_seg_disc = torch.sum(mask[:,1,...] * loss_seg_pixel[:,1,...]) / torch.sum(mask[:,1,...])
-            
-            # loss_seg_cup_copy = torch.sum(mask_copy[:,0,...] * loss_seg_pixel[:,0,...])  / torch.sum(mask_copy[:,0,...])
-            
-            # print(f"Seg copy - cup : {loss_seg_cup_copy - loss_seg_cup}")            
-            
-            epoch_cup_avg_loss += loss_seg_cup
-            epoch_disc_avg_loss += loss_seg_disc
-            
-            # loss_seg_disc = 0
-            # print(f"CUP LOSS {loss_seg_cup}")
-            # print(f"DISC LOSS {loss_seg_disc}")
-            
-            (loss_seg_cup + loss_seg_disc).backward()
+            loss_seg = torch.sum(mask * loss_seg_pixel) / torch.sum(mask)
+            loss_seg.backward()
             optim_gen.step()
             iter_num = iter_num + 1
-        print(f"\nEpoch {epoch_num} Ratio:{(epoch_disc_avg_loss/num_img_tr)/(epoch_cup_avg_loss/num_img_tr)} cup loss: {epoch_cup_avg_loss/num_img_tr} disc loss: {epoch_disc_avg_loss/num_img_tr}")
 
         #test
         model_eval.train()
@@ -313,7 +243,6 @@ if __name__ == '__main__':
         print("best cup: %.4f best disc: %.4f best avg: %.4f best cup: %.4f best disc: %.4f best avg: %.4f" %
               (best_val_cup_dice, best_val_disc_dice, best_avg, best_cup_hd, best_disc_hd, best_avg_hd))
         model.train()
-
 
 
 

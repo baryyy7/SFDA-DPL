@@ -1,0 +1,12 @@
+First try : SAM PSEUDO used the prediction, without denoising
+(DPL) cup: 0.7063 disc: 0.8176 avg: 0.7620 cup: 17.5791 disc: 28.3084 avg: 22.9437
+(SAM WITH GT BBOX) cup: 0.7964 disc: 0.8445 avg: 0.8204 cup: 17.5791 disc: 28.3084 avg: 22.9437, HD IS NOT UPDATED FOR SAM
+(SAM WITH PSEUDO BBOX) cup: 0.5717 disc: 0.6364 avg: 0.6040 cup: 17.5791 disc: 28.3084 avg: 22.9437, HD IS NOT UPDATED FOR SAM
+
+Second try : SAM pseudo used the pseudo labels. Some pseudo labels are broken (multiple 'islands'), so it harmed the model's overall results.
+(DPL) cup: 0.7047 disc: 0.8176 avg: 0.7611 cup: 18.6882 disc: 29.1457 avg: 23.9169
+(SAM WITH GT BBOX) cup: 0.7964 disc: 0.8445 avg: 0.8204 cup: 18.6882 disc: 29.1457 avg: 23.9169, HD IS NOT UPDATED FOR SAM
+(SAM WITH PSEUDO BBOX) cup: 0.7010 disc: 0.7816 avg: 0.7413 cup: 18.6882 disc: 29.1457 avg: 23.9169, HD IS NOT UPDATED FOR SAM
+
+When using 2 circles for the cup prompt, broke DPL's score:
+(SAM WITH GT BBOX) cup: 0.8126 disc: 0.8543 avg: 0.8334 cup: 14.0261 disc: 23.4372 avg: 18.7316, HD IS NOT UPDATED FOR SAM

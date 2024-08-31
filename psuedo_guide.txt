@@ -1,0 +1,9 @@
+pseudolabel_D2_bar - regular 
+
+pseudolabel_D2_bar_cup_on_disc.npz - fixing cup bg with soft label 
+
+pseudolabel_D2_bar_cup_on_disc_hard_label.npz - fixing cup bg with hard label
+
+pseudolabel_D2_bar_cup_on_disc_gt.npz - fixing cup bg with hard GT label 
+
+pseudolabel_D2_bar_cup_on_disc_gt_fg.npz fixing cup bg with hard GT label AND fixing disc with hard GT label (by removing cup from centriod)
